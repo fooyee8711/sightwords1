@@ -191,12 +191,23 @@ export default function App() {
     }
     return {};
   });
-  const [settings, setSettings] = useState<AppSettings>({ wordsPerSession: 5 });
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('macaron_settings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return { wordsPerSession: 5 };
+      }
+    }
+    return { wordsPerSession: 5 };
+  });
   const [streak, setStreak] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
   const [sessionStartTime] = useState(Date.now());
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
-  // Save stats and level to localStorage
+  // Save stats, settings, and level to localStorage
   useEffect(() => {
     localStorage.setItem('macaron_stats', JSON.stringify(stats));
   }, [stats]);
@@ -204,6 +215,24 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('macaron_level', level);
   }, [level]);
+
+  useEffect(() => {
+    localStorage.setItem('macaron_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v.length > 0) {
+        setVoices(v);
+      }
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
 
   const wordsInLevel = useMemo(() => SIGHT_WORDS_BY_LEVEL[level] || [], [level]);
   
@@ -237,8 +266,10 @@ export default function App() {
     const utterance = new SpeechSynthesisUtterance(text);
     
     // Attempt to find a British English voice
-    const voices = window.speechSynthesis.getVoices();
-    const gbVoice = voices.find(v => v.lang.toLowerCase().includes('en-gb'));
+    // Use the state voices if ready, otherwise try getVoices directly
+    const availableVoices = voices.length > 0 ? voices : window.speechSynthesis.getVoices();
+    const gbVoice = availableVoices.find(v => v.lang.toLowerCase().includes('en-gb'));
+    
     if (gbVoice) {
       utterance.voice = gbVoice;
     }
