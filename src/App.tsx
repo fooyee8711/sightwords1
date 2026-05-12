@@ -25,7 +25,13 @@ import {
 import { SIGHT_WORDS_BY_LEVEL, StorySegment, STORY_TEMPLATES, getPhonemes } from './constants';
 
 const getApiKey = () => {
-  return import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
+  return (
+    import.meta.env.VITE_GEMINI_API_KEY_8 || 
+    import.meta.env.VITE_GEMINI_API_KEY || 
+    process.env.Gemini_API_Key_8 || 
+    process.env.GEMINI_API_KEY || 
+    ""
+  );
 };
 
 const ai = new GoogleGenAI({ apiKey: getApiKey() });
@@ -279,12 +285,16 @@ export default function App() {
     
     setIsGeneratingStories(true);
     try {
-      const prompt = `Generate 5 very simple short stories for a 5-year-old child. 
+      const prompt = `Generate exactly 5 very simple short stories for a 5-year-old child. 
       The style must be extremely simple, like a Peppa Pig picture book. Use very short sentences and easy words.
-      Each story should be 6 to 8 short lines.
-      CRITICAL: Each story MUST include all 5 of these words: ${todaysWords.join(', ')}.
-      The stories should be about Peppa Pig's family, playing with friends, or going to the park.
-      Return the result as a JSON array of objects, where each object has a 'title' string and a 'lines' array of strings.`;
+      Each story should be 6 to 8 short lines long.
+      
+      CRITICAL REQUIREMENT: Every single story MUST include ALL of the following ${todaysWords.length} sight words: ${todaysWords.join(', ')}. 
+      
+      The stories should be themed around Peppa Pig, her family, friends, and their daily adventures (park, school, muddy puddles).
+      Ensure the language is repetitive and predictable, ideal for early readers (Lexile 100L-200L).
+      
+      Return the result as a JSON array of exactly 5 objects, where each object has a 'title' string and a 'lines' array of strings.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -309,7 +319,7 @@ export default function App() {
       });
 
       const data = JSON.parse(response.text);
-      setGeneratedStories(data.map((s: any, storyIdx: number) => ({
+      setGeneratedStories(data.slice(0, 5).map((s: any, storyIdx: number) => ({
         id: `story-${storyIdx}`,
         title: s.title,
         lines: s.lines.map((line: string, lineIdx: number) => ({
@@ -319,9 +329,10 @@ export default function App() {
       })));
     } catch (error) {
       console.error("Failed to generate stories:", error);
-      setGeneratedStories([
-        {
-          title: "Peppa's Fun Day",
+      const fallbacks = [];
+      for (let i = 0; i < 5; i++) {
+        fallbacks.push({
+          title: `Peppa's Adventure #${i + 1}`,
           lines: [
             "Today is a very happy day.",
             `Peppa and George ${todaysWords[0] || 'play'} outside.`,
@@ -330,19 +341,25 @@ export default function App() {
             `George ${todaysWords[3] || 'is'} happy.`,
             `Peppa likes the ${todaysWords[4] || 'blue'} sky.`,
             "We love to jump in puddles."
-          ].map((text, i) => ({ id: `fallback-0-${i}`, text }))
-        }
-      ]);
+          ].map((text, j) => ({ id: `fallback-${i}-${j}`, text }))
+        });
+      }
+      setGeneratedStories(fallbacks);
     } finally {
       setIsGeneratingStories(false);
     }
   };
 
   useEffect(() => {
+    setGeneratedStories([]);
+    setStep(0);
+  }, [level, todaysWords]);
+
+  useEffect(() => {
     if (gameState === 'fullStory' && generatedStories.length === 0) {
       generateStories();
     }
-  }, [gameState, todaysWords]);
+  }, [gameState, generatedStories.length]);
 
   const [currentStoryIdx, setCurrentStoryIdx] = useState(0);
 
