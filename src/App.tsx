@@ -8,6 +8,7 @@ import {
   Timer, 
   Trophy, 
   ArrowRight,
+  ChevronRight,
   RefreshCcw,
   Volume2,
   Settings,
@@ -176,14 +177,33 @@ const PhonemeBox = ({ letters, onComplete }: { letters: string[], onComplete: ()
 };
 
 export default function App() {
-  const [level, setLevel] = useState('Level 1 (Age 5)');
+  const [level, setLevel] = useState(() => localStorage.getItem('macaron_level') || 'Level 1 (Age 5)');
   const [step, setStep] = useState(0);
   const [gameState, setGameState] = useState<'story' | 'challenge' | 'feedback' | 'parents'>('story');
-  const [stats, setStats] = useState<Record<string, WordStats>>({});
+  const [stats, setStats] = useState<Record<string, WordStats>>(() => {
+    const saved = localStorage.getItem('macaron_stats');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return {};
+      }
+    }
+    return {};
+  });
   const [settings, setSettings] = useState<AppSettings>({ wordsPerSession: 5 });
   const [streak, setStreak] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
   const [sessionStartTime] = useState(Date.now());
+
+  // Save stats and level to localStorage
+  useEffect(() => {
+    localStorage.setItem('macaron_stats', JSON.stringify(stats));
+  }, [stats]);
+
+  useEffect(() => {
+    localStorage.setItem('macaron_level', level);
+  }, [level]);
 
   const wordsInLevel = useMemo(() => SIGHT_WORDS_BY_LEVEL[level] || [], [level]);
   
@@ -215,7 +235,15 @@ export default function App() {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
+    
+    // Attempt to find a British English voice
+    const voices = window.speechSynthesis.getVoices();
+    const gbVoice = voices.find(v => v.lang.toLowerCase().includes('en-gb'));
+    if (gbVoice) {
+      utterance.voice = gbVoice;
+    }
+    
+    utterance.lang = 'en-GB';
     utterance.rate = 0.8;
     window.speechSynthesis.speak(utterance);
   };
@@ -405,110 +433,101 @@ export default function App() {
                    </button>
                 </div>
               ) : (
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <section className="bg-white rounded-[40px] border-4 border-brand-border flex flex-col items-center justify-center p-6 sm:p-12 text-center relative overflow-hidden h-[400px] md:h-[500px] shadow-sm">
-                    <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-emerald-50 rounded-full opacity-50" />
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <motion.section 
+                    key={gameState + step}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="w-full max-w-3xl bg-white rounded-[40px] border-4 border-brand-border flex flex-col items-center justify-center p-8 sm:p-16 text-center relative shadow-sm min-h-[500px]"
+                  >
                     <AnimatePresence mode="wait">
-                      <motion.div 
-                        key={step + gameState + level}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 1.1 }}
-                        className="z-10"
-                      >
-                        <div className="space-y-4 md:space-y-6">
-                          <h2 className="text-2xl md:text-3xl font-bold leading-relaxed text-brand-navy">
-                            {currentSegment?.text.split(/(\b)/).map((part, i) => {
-                              const isTarget = part.toLowerCase() === currentSegment?.word.toLowerCase();
-                              if (!part.trim() && part !== "") return <span key={i}>{part}</span>;
-                              return (
-                                <span 
-                                  key={i} 
-                                  onClick={isTarget ? () => setGameState('challenge') : undefined}
-                                  className={`inline-block rounded-lg transition-all ${isTarget ? 'cursor-pointer px-1' : 'opacity-80'}`}
-                                >
-                                  {part}
-                                </span>
-                              );
-                            })}
-                          </h2>
-                          <p className="text-base md:text-lg text-slate-400 font-black uppercase tracking-widest italic">
-                            "{currentSegment?.question}"
-                          </p>
-                        </div>
-                      </motion.div>
-                    </AnimatePresence>
-                  </section>
-
-                  <section className="flex flex-col gap-6 h-[400px] md:h-[500px]">
-                    <div className="flex-1 bg-white rounded-[40px] border-4 border-brand-border p-6 sm:p-10 flex flex-col items-center justify-center text-center shadow-sm">
-                      <AnimatePresence mode="wait">
-                        {gameState === 'story' && (
-                          <motion.div
-                            key="action-trigger"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex flex-col items-center"
-                          >
-                            <span className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-6 bg-emerald-50 px-4 py-1 rounded-full italic">Find the word</span>
-                            <div 
-                              className="text-7xl font-black text-emerald-600 tracking-tighter mb-10 flex flex-col items-center cursor-pointer active:scale-95 transition-transform"
-                              onClick={() => speak(currentSegment.word)}
-                            >
-                              {currentSegment?.word}
-                              <div className="flex items-center gap-2 mt-2 text-xs font-black text-emerald-400 uppercase tracking-widest">
-                                <Volume2 size={14} /> Listen
-                              </div>
-                            </div>
-                            <p className="text-slate-400 font-bold">
-                              Tap the word <span className="text-orange-500">'{currentSegment.word}'</span> in the story!
+                      {gameState === 'story' && (
+                        <motion.div 
+                          key="story-view"
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 1.05 }}
+                          className="w-full space-y-12"
+                        >
+                          <div className="space-y-8">
+                            <h2 className="text-3xl md:text-5xl font-bold leading-relaxed text-brand-navy">
+                              {currentSegment?.text.split(/(\b)/).map((part, i) => {
+                                const isWord = /[a-zA-Z]/.test(part);
+                                const isTarget = part.toLowerCase() === currentSegment?.word.toLowerCase();
+                                
+                                if (!isWord) return <span key={i}>{part}</span>;
+                                
+                                return (
+                                  <span 
+                                    key={i} 
+                                    onClick={() => {
+                                      speak(part);
+                                      if (isTarget) {
+                                        setGameState('challenge');
+                                      }
+                                    }}
+                                    className={`inline-block transition-all cursor-pointer hover:bg-slate-50 hover:text-orange-500 rounded-lg px-0.5`}
+                                  >
+                                    {part}
+                                  </span>
+                                );
+                              })}
+                            </h2>
+                            <p className="text-xl text-slate-400 font-black uppercase tracking-widest italic pt-4">
+                              Tap the word "{currentSegment?.word}" to start spelling!
                             </p>
-                          </motion.div>
-                        )}
-
-                        {gameState === 'challenge' && (
-                          <motion.div
-                            key="action-game"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="w-full flex flex-col items-center"
+                          </div>
+                          <button 
+                            className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto border-4 border-blue-200 hover:bg-blue-200 transition-all active:scale-90"
+                            onClick={() => speak(currentSegment?.word)}
                           >
-                            <span className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-4 px-4 py-1 bg-emerald-50 rounded-full italic">Spell the word</span>
-                            <div className="text-5xl font-black text-brand-navy mb-8">{currentSegment.word}</div>
-                            <PhonemeBox 
-                              letters={getPhonemes(currentSegment.word)} 
-                              onComplete={handleChallengeComplete} 
-                            />
-                          </motion.div>
-                        )}
+                            <Volume2 className="text-blue-600" size={32} />
+                          </button>
+                        </motion.div>
+                      )}
 
-                        {gameState === 'feedback' && (
-                          <motion.div
-                            key="action-result"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex flex-col items-center"
+                      {gameState === 'challenge' && (
+                        <motion.div
+                          key="challenge-view"
+                          initial={{ opacity: 0, x: 50 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -50 }}
+                          className="w-full flex flex-col items-center"
+                        >
+                          <span className="text-sm font-black uppercase tracking-widest text-emerald-600 mb-6 px-6 py-2 bg-emerald-50 rounded-full italic">Spell the word</span>
+                          <div className="text-6xl font-black text-brand-navy mb-12 tracking-tight">{currentSegment.word}</div>
+                          <PhonemeBox 
+                            letters={getPhonemes(currentSegment.word)} 
+                            onComplete={handleChallengeComplete} 
+                          />
+                        </motion.div>
+                      )}
+
+                      {gameState === 'feedback' && (
+                        <motion.div
+                          key="feedback-view"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 1.2 }}
+                          className="flex flex-col items-center"
+                        >
+                          <div className="text-[120px] mb-8 animate-bounce">⭐</div>
+                          <div className="text-3xl font-black text-slate-400 mb-2 uppercase tracking-widest">
+                            {currentSegment.word}
+                          </div>
+                          <div className="text-5xl font-black text-brand-navy mb-16 italic">Excellent!</div>
+                          
+                          <button 
+                            onClick={nextStep}
+                            className="bg-brand-navy text-white px-16 py-6 rounded-full text-3xl font-black shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-4"
                           >
-                            <div className="text-8xl mb-6">⭐</div>
-                            <div className="text-2xl font-black text-slate-400 mb-2 uppercase tracking-widest">
-                              {currentSegment.word}
-                            </div>
-                            <div className="text-4xl font-black text-brand-navy mb-12 italic">Great job!</div>
-                            
-                            <button 
-                              onClick={nextStep}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-12 py-5 rounded-full text-2xl font-black shadow-lg border-b-8 border-blue-800 transition-all active:translate-y-1 active:border-b-4"
-                            >
-                              CONTINUE ➔
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  </section>
+                            NEXT WORD <ChevronRight size={32} />
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.section>
                 </div>
               )}
             </div>
