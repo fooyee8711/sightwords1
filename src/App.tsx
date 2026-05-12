@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Eye, 
   Play, 
@@ -9,6 +10,7 @@ import {
   Trophy, 
   ArrowRight,
   ChevronRight,
+  ChevronLeft,
   RefreshCcw,
   Volume2,
   Settings,
@@ -21,6 +23,8 @@ import {
   Ghost
 } from 'lucide-react';
 import { SIGHT_WORDS_BY_LEVEL, StorySegment, STORY_TEMPLATES, getPhonemes } from './constants';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // --- Types ---
 interface WordStats {
@@ -92,7 +96,7 @@ const GhostProgressBar = ({
   );
 };
 
-const PhonemeBox = ({ letters, onComplete }: { letters: string[], onComplete: () => void }) => {
+const PhonemeBox = ({ letters, onComplete, onLetterTap }: { letters: string[], onComplete: () => void, onLetterTap: (letter: string) => void }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>([]);
   const [usedIndices, setUsedIndices] = useState<number[]>([]);
@@ -109,11 +113,11 @@ const PhonemeBox = ({ letters, onComplete }: { letters: string[], onComplete: ()
   }, [letters]);
 
   const handleTap = (originalIndex: number) => {
-    // Corrected logic: Check if the tapped letter matches the letter wanted at the current activeIndex
     const tappedLetter = letters[originalIndex];
     const targetLetter = letters[activeIndex];
 
     if (tappedLetter === targetLetter) {
+      onLetterTap(tappedLetter);
       setUsedIndices(prev => [...prev, originalIndex]);
       const nextIndex = activeIndex + 1;
       setActiveIndex(nextIndex);
@@ -179,7 +183,7 @@ const PhonemeBox = ({ letters, onComplete }: { letters: string[], onComplete: ()
 export default function App() {
   const [level, setLevel] = useState(() => localStorage.getItem('macaron_level') || 'Level 1 (Age 5)');
   const [step, setStep] = useState(0);
-  const [gameState, setGameState] = useState<'story' | 'challenge' | 'feedback' | 'parents'>('story');
+  const [gameState, setGameState] = useState<'home' | 'story' | 'challenge' | 'feedback' | 'parents' | 'fullStory'>('home');
   const [stats, setStats] = useState<Record<string, WordStats>>(() => {
     const saved = localStorage.getItem('macaron_stats');
     if (saved) {
@@ -206,6 +210,8 @@ export default function App() {
   const [totalScore, setTotalScore] = useState(0);
   const [sessionStartTime] = useState(Date.now());
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [generatedStories, setGeneratedStories] = useState<any[]>([]);
+  const [isGeneratingStories, setIsGeneratingStories] = useState(false);
 
   // Save stats, settings, and level to localStorage
   useEffect(() => {
@@ -260,22 +266,125 @@ export default function App() {
 
   const currentSegment = currentStoryData[step] || currentStoryData[0];
 
+  const todaysWords = useMemo(() => {
+    return currentLevelWordsRemaining.map(w => w);
+  }, [currentLevelWordsRemaining]);
+
+  const generateStories = async () => {
+    if (todaysWords.length === 0 || isGeneratingStories) return;
+    
+    setIsGeneratingStories(true);
+    try {
+      const prompt = `Generate 5 very simple short stories for a 5-year-old child. 
+      The style must be extremely simple, like a Peppa Pig picture book. Use very short sentences and easy words.
+      Each story should be 6 to 8 short lines.
+      CRITICAL: Each story MUST include all 5 of these words: ${todaysWords.join(', ')}.
+      The stories should be about Peppa Pig's family, playing with friends, or going to the park.
+      Return the result as a JSON array of objects, where each object has a 'title' string and a 'lines' array of strings.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                lines: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                }
+              },
+              required: ["title", "lines"]
+            }
+          }
+        }
+      });
+
+      const data = JSON.parse(response.text);
+      setGeneratedStories(data.map((s: any, storyIdx: number) => ({
+        id: `story-${storyIdx}`,
+        title: s.title,
+        lines: s.lines.map((line: string, lineIdx: number) => ({
+          id: `story-${storyIdx}-line-${lineIdx}`,
+          text: line
+        }))
+      })));
+    } catch (error) {
+      console.error("Failed to generate stories:", error);
+      setGeneratedStories([
+        {
+          title: "Peppa's Fun Day",
+          lines: [
+            "Today is a very happy day.",
+            `Peppa and George ${todaysWords[0] || 'play'} outside.`,
+            `They ${todaysWords[1] || 'look'} at the garden.`,
+            `It is fun to ${todaysWords[2] || 'see'} the mud.`,
+            `George ${todaysWords[3] || 'is'} happy.`,
+            `Peppa likes the ${todaysWords[4] || 'blue'} sky.`,
+            "We love to jump in puddles."
+          ].map((text, i) => ({ id: `fallback-0-${i}`, text }))
+        }
+      ]);
+    } finally {
+      setIsGeneratingStories(false);
+    }
+  };
+
+  useEffect(() => {
+    if (gameState === 'fullStory' && generatedStories.length === 0) {
+      generateStories();
+    }
+  }, [gameState, todaysWords]);
+
+  const [currentStoryIdx, setCurrentStoryIdx] = useState(0);
+
   const speak = (text: string) => {
     if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
+    
+    try {
+      window.speechSynthesis.cancel();
+      // Resume if it somehow got stuck
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    } catch (e) {
+      console.error("Speech reset failed", e);
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     
-    // Attempt to find a British English voice
-    // Use the state voices if ready, otherwise try getVoices directly
     const availableVoices = voices.length > 0 ? voices : window.speechSynthesis.getVoices();
-    const gbVoice = availableVoices.find(v => v.lang.toLowerCase().includes('en-gb'));
+    const gbFemaleVoice = availableVoices.find(v => 
+      v.lang.toLowerCase().includes('en-gb') && 
+      (v.name.toLowerCase().includes('female') || 
+       v.name.toLowerCase().includes('girl') || 
+       v.name.toLowerCase().includes('hazel') || 
+       v.name.toLowerCase().includes('serena') || 
+       v.name.toLowerCase().includes('susan') ||
+       v.name.toLowerCase().includes('libby') ||
+       v.name.toLowerCase().includes('amy') ||
+       v.name.toLowerCase().includes('google uk english female'))
+    );
     
-    if (gbVoice) {
-      utterance.voice = gbVoice;
+    if (gbFemaleVoice) {
+      utterance.voice = gbFemaleVoice;
+    } else {
+      const gbVoice = availableVoices.find(v => v.lang.toLowerCase().includes('en-gb'));
+      if (gbVoice) utterance.voice = gbVoice;
     }
     
     utterance.lang = 'en-GB';
-    utterance.rate = 0.8;
+    utterance.rate = 0.85;
+    utterance.pitch = 1.1; // Slightly higher pitch for a "girl" feel if it's the generic voice
+
+    utterance.onerror = (e) => {
+      console.error("Speech synthesis error", e);
+    };
+
     window.speechSynthesis.speak(utterance);
   };
 
@@ -310,8 +419,17 @@ export default function App() {
       setGameState('story');
     } else {
       setStep(0);
-      setGameState('story');
+      setGameState('home');
       setTotalScore(prev => prev + 100);
+    }
+  };
+
+  const nextStory = () => {
+    if (currentStoryIdx < generatedStories.length - 1) {
+      setCurrentStoryIdx(prev => prev + 1);
+    } else {
+      setCurrentStoryIdx(0);
+      setGameState('home');
     }
   };
 
@@ -335,6 +453,15 @@ export default function App() {
       <header className="w-full h-20 sm:h-24 bg-white border-b-4 border-brand-border px-4 sm:px-8 flex items-center justify-center shrink-0">
         <div className="w-full max-w-5xl flex items-center justify-between">
           <div className="flex items-center gap-4">
+            {gameState !== 'home' && (
+              <button 
+                onClick={() => setGameState('home')}
+                className="p-2 bg-brand-beige rounded-xl border-2 border-brand-border hover:bg-white transition-colors active:scale-90"
+                aria-label="Go Back"
+              >
+                <ChevronLeft size={24} className="text-brand-navy/60" />
+              </button>
+            )}
             <div className="w-12 h-12 bg-orange-400 rounded-full flex items-center justify-center text-2xl shadow-sm">🦊</div>
             <div className="flex flex-col">
               <span className="text-[10px] font-black uppercase tracking-widest text-orange-600">The Fox Quest</span>
@@ -361,7 +488,35 @@ export default function App() {
 
       <main className="w-full max-w-5xl flex-1 flex flex-col p-4 sm:p-8 relative">
         <AnimatePresence mode="wait">
-          {gameState === 'parents' ? (
+          {gameState === 'home' ? (
+            <motion.div 
+              key="home-view"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex-1 flex flex-col items-center justify-center gap-8"
+            >
+              <h2 className="text-4xl font-black text-brand-navy italic mb-4">Choose Your Quest!</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-2xl text-white">
+                <button 
+                  onClick={() => setGameState('story')}
+                  className="bg-orange-400 p-8 rounded-[40px] border-b-8 border-orange-600 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group"
+                >
+                  <div className="text-6xl group-hover:scale-110 transition-transform">🔍</div>
+                  <span className="text-2xl font-black uppercase italic">Find Words</span>
+                  <p className="text-sm font-bold opacity-80">Learn {settings.wordsPerSession} new words today!</p>
+                </button>
+                <button 
+                  onClick={() => setGameState('fullStory')}
+                  className="bg-blue-500 p-8 rounded-[40px] border-b-8 border-blue-700 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group"
+                >
+                  <div className="text-6xl group-hover:scale-110 transition-transform">📖</div>
+                  <span className="text-2xl font-black uppercase italic">Story Time</span>
+                  <p className="text-sm font-bold opacity-80">Read fun Peppa stories!</p>
+                </button>
+              </div>
+            </motion.div>
+          ) : gameState === 'parents' ? (
             <motion.div 
               key="parents-view"
               initial={{ opacity: 0, y: 30 }}
@@ -374,7 +529,13 @@ export default function App() {
                   <h2 className="text-3xl font-black text-brand-navy italic">Parents Dashboard</h2>
                   <p className="text-slate-400 font-bold">Manage learning and settings</p>
                 </div>
-                <button onClick={toggleParentsView} className="p-3 bg-red-50 text-red-500 rounded-full hover:bg-red-100"><X /></button>
+                <button 
+                  onClick={() => setGameState('home')} 
+                  className="px-6 py-3 bg-brand-navy text-white rounded-2xl font-black shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2"
+                >
+                  <ArrowRight className="rotate-180" size={18} />
+                  Home
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -483,8 +644,8 @@ export default function App() {
                         >
                           <div className="space-y-8">
                             <h2 className="text-3xl md:text-5xl font-bold leading-relaxed text-brand-navy">
-                              {currentSegment?.text.split(/(\b)/).map((part, i) => {
-                                const isWord = /[a-zA-Z]/.test(part);
+                              {currentSegment?.text.split(/([^a-zA-Z0-9]+)/).map((part: string, i: number) => {
+                                const isWord = /[a-zA-Z0-9]/.test(part);
                                 const isTarget = part.toLowerCase() === currentSegment?.word.toLowerCase();
                                 
                                 if (!isWord) return <span key={i}>{part}</span>;
@@ -530,8 +691,79 @@ export default function App() {
                           <div className="text-6xl font-black text-brand-navy mb-12 tracking-tight">{currentSegment.word}</div>
                           <PhonemeBox 
                             letters={getPhonemes(currentSegment.word)} 
+                            onLetterTap={(letter) => speak(letter)}
                             onComplete={handleChallengeComplete} 
                           />
+                        </motion.div>
+                      )}
+
+                      {gameState === 'fullStory' && (
+                        <motion.div
+                          key="full-story-view"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="w-full space-y-8"
+                        >
+                          {isGeneratingStories ? (
+                            <div className="flex flex-col items-center justify-center py-20 gap-6">
+                              <RefreshCcw className="animate-spin text-blue-500" size={48} />
+                              <h3 className="text-2xl font-black text-brand-navy italic">Creating your Peppa stories...</h3>
+                              <p className="text-slate-400 font-bold">Including today's words: {todaysWords.join(', ')}</p>
+                            </div>
+                          ) : (
+                            <>
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-4 py-1 rounded-full italic w-fit">Story {currentStoryIdx + 1} of {generatedStories.length}</span>
+                              <h3 className="text-xl font-black text-brand-navy italic">{generatedStories[currentStoryIdx]?.title}</h3>
+                            </div>
+                            <button 
+                              onClick={() => speak(generatedStories[currentStoryIdx]?.lines.map((l: any) => l.text).join(' '))}
+                              className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center border-2 border-blue-200 hover:bg-blue-200 transition-all"
+                            >
+                              <Volume2 className="text-blue-600" size={24} />
+                            </button>
+                          </div>
+                              
+                              <div className="space-y-4 text-left">
+                                {generatedStories[currentStoryIdx]?.lines.map((line: any) => (
+                                  <p key={line.id} className="text-2xl md:text-3xl font-bold leading-relaxed text-brand-navy border-b border-dashed border-slate-100 pb-2 flex flex-wrap gap-x-1">
+                                    {line.text.split(/([^a-zA-Z0-9]+)/).map((part: string, i: number) => {
+                                      const isWord = /[a-zA-Z0-9]/.test(part);
+                                      const isSightWord = todaysWords.some(tw => tw.toLowerCase() === part.toLowerCase());
+                                      if (!isWord) return <span key={i} className="py-1">{part}</span>;
+                                      return (
+                                        <span 
+                                          key={i} 
+                                          onClick={() => speak(part)}
+                                          className={`cursor-pointer hover:text-orange-500 transition-colors py-1 px-0.5 rounded hover:bg-slate-50 ${isSightWord ? 'text-blue-600 underline decoration-blue-300' : ''}`}
+                                        >
+                                          {part}
+                                        </span>
+                                      );
+                                    })}
+                                  </p>
+                                ))}
+                              </div>
+
+                              <div className="pt-8 flex justify-between items-center">
+                                <button 
+                                  onClick={() => setGameState('home')}
+                                  className="px-8 py-4 bg-slate-100 text-slate-500 rounded-full font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2"
+                                >
+                                  <ArrowRight className="rotate-180" size={18} />
+                                  Menu
+                                </button>
+                                <button 
+                                  onClick={nextStory}
+                                  className="bg-blue-600 text-white px-12 py-5 rounded-full text-2xl font-black shadow-lg hover:bg-blue-700 transition-all flex items-center gap-4"
+                                >
+                                  {currentStoryIdx < generatedStories.length - 1 ? "Next Story ➔" : "Finish Quest 🏁"}
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </motion.div>
                       )}
 
