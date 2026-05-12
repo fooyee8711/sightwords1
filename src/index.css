@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-navy: #2D334A;
+  --color-brand-beige: #F7F3E9;
+  --color-brand-border: #E0D8C3;
+}
+
+@layer base {
+  button, a {
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  
+  /* Prevent scrolling while swiping if needed */
+  body {
+    touch-action: manipulation;
+  }
+}
