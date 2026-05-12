@@ -24,7 +24,11 @@ import {
 } from 'lucide-react';
 import { SIGHT_WORDS_BY_LEVEL, StorySegment, STORY_TEMPLATES, getPhonemes } from './constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const getApiKey = () => {
+  return import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 // --- Types ---
 interface WordStats {
