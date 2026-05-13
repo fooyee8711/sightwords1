@@ -43,6 +43,13 @@ interface WordStats {
   learned: boolean;
 }
 
+interface DailyTask {
+  words: string[];
+  loopsDone: number;
+  readsDone: number;
+  lastReset: string;
+}
+
 interface AppSettings {
   wordsPerSession: number;
 }
@@ -221,8 +228,21 @@ export default function App() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [generatedStories, setGeneratedStories] = useState<any[]>([]);
   const [isGeneratingStories, setIsGeneratingStories] = useState(false);
+  const [dailyTask, setDailyTask] = useState<DailyTask>(() => {
+    const saved = localStorage.getItem('macaron_daily_task');
+    const today = new Date().toDateString();
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.lastReset === today) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return { words: [], loopsDone: 0, readsDone: 0, lastReset: today };
+  });
 
-  // Save stats, settings, and level to localStorage
+  // Save stats, settings, daily task and level to localStorage
   useEffect(() => {
     localStorage.setItem('macaron_stats', JSON.stringify(stats));
   }, [stats]);
@@ -234,6 +254,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('macaron_settings', JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('macaron_daily_task', JSON.stringify(dailyTask));
+  }, [dailyTask]);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -251,13 +275,22 @@ export default function App() {
 
   const wordsInLevel = useMemo(() => SIGHT_WORDS_BY_LEVEL[level] || [], [level]);
   
-  const currentLevelWordsRemaining = useMemo(() => {
-    return wordsInLevel.filter(w => !stats[w]?.learned).slice(0, settings.wordsPerSession);
-  }, [wordsInLevel, stats, settings.wordsPerSession]);
+  // Initialize or maintain daily words
+  useEffect(() => {
+    if (dailyTask.words.length === 0 && wordsInLevel.length > 0) {
+      const unlearned = wordsInLevel.filter(w => !stats[w]?.learned);
+      const pool = unlearned.length > 0 ? unlearned : wordsInLevel;
+      const shuffled = [...pool].sort(() => 0.5 - Math.random());
+      const picked = shuffled.slice(0, settings.wordsPerSession);
+      setDailyTask(prev => ({ ...prev, words: picked }));
+    }
+  }, [wordsInLevel, stats, settings.wordsPerSession, dailyTask.words.length]);
+
+  const todaysWords = useMemo(() => dailyTask.words, [dailyTask.words]);
 
   const currentStoryData: StorySegment[] = useMemo(() => {
-    if (currentLevelWordsRemaining.length === 0) return [];
-    return currentLevelWordsRemaining.map((word, i) => {
+    if (todaysWords.length === 0) return [];
+    return todaysWords.map((word, i) => {
       const template = (STORY_TEMPLATES as any)[word] || {
         text: `Foxy is looking for the word ${word}!`,
         emoji: "🌳🦊",
@@ -271,13 +304,9 @@ export default function App() {
         ...template
       } as StorySegment;
     });
-  }, [currentLevelWordsRemaining, level]);
+  }, [todaysWords, level]);
 
   const currentSegment = currentStoryData[step] || currentStoryData[0];
-
-  const todaysWords = useMemo(() => {
-    return currentLevelWordsRemaining.map(w => w);
-  }, [currentLevelWordsRemaining]);
 
   const generateStories = async () => {
     if (todaysWords.length === 0 || isGeneratingStories) return;
@@ -448,6 +477,20 @@ export default function App() {
       setStep(0);
       setGameState('home');
       setTotalScore(prev => prev + 100);
+      setDailyTask(prev => {
+        const nextLoops = prev.loopsDone + 1;
+        if (nextLoops === 3) {
+          setStats(s => {
+            const newStats = { ...s };
+            prev.words.forEach(w => {
+              if (!newStats[w]) newStats[w] = { word: w, totalAttempts: 0, learned: true };
+              else newStats[w] = { ...newStats[w], learned: true };
+            });
+            return newStats;
+          });
+        }
+        return { ...prev, loopsDone: nextLoops };
+      });
     }
   };
 
@@ -457,6 +500,8 @@ export default function App() {
     } else {
       setCurrentStoryIdx(0);
       setGameState('home');
+      setDailyTask(prev => ({ ...prev, readsDone: prev.readsDone + 1 }));
+      setTotalScore(prev => prev + 200);
     }
   };
 
@@ -521,27 +566,70 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="flex-1 flex flex-col items-center justify-center gap-8"
+              className="flex-1 flex flex-col items-center justify-center gap-8 w-full"
             >
-              <h2 className="text-4xl font-black text-brand-navy italic mb-4">Choose Your Quest!</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-2xl text-white">
-                <button 
-                  onClick={() => setGameState('story')}
-                  className="bg-orange-400 p-8 rounded-[40px] border-b-8 border-orange-600 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group"
-                >
-                  <div className="text-6xl group-hover:scale-110 transition-transform">🔍</div>
-                  <span className="text-2xl font-black uppercase italic">Find Words</span>
-                  <p className="text-sm font-bold opacity-80">Learn {settings.wordsPerSession} new words today!</p>
-                </button>
-                <button 
-                  onClick={() => setGameState('fullStory')}
-                  className="bg-blue-500 p-8 rounded-[40px] border-b-8 border-blue-700 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group"
-                >
-                  <div className="text-6xl group-hover:scale-110 transition-transform">📖</div>
-                  <span className="text-2xl font-black uppercase italic">Story Time</span>
-                  <p className="text-sm font-bold opacity-80">Read fun Peppa stories!</p>
-                </button>
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-black text-brand-navy italic">Today's Walk</h2>
+                <div className="flex gap-4 items-center justify-center">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-3 h-3 rounded-full ${dailyTask.loopsDone >= 3 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className="text-[10px] font-black uppercase text-slate-400">Step 1: Learn</span>
+                  </div>
+                  <div className="w-8 h-1 bg-slate-100 rounded-full" />
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-3 h-3 rounded-full ${dailyTask.readsDone >= 2 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className="text-[10px] font-black uppercase text-slate-400">Step 2: Read</span>
+                  </div>
+                </div>
               </div>
+
+              {dailyTask.loopsDone >= 3 && dailyTask.readsDone >= 2 ? (
+                <div className="bg-white p-12 rounded-[40px] border-4 border-brand-border text-center space-y-6 shadow-xl max-w-lg">
+                  <div className="text-8xl">🥇</div>
+                  <h3 className="text-4xl font-black text-brand-navy italic">Daily Mission Clear!</h3>
+                  <p className="text-xl text-slate-500 font-bold">You've mastered today's words and finished your stories. See you tomorrow for a new quest!</p>
+                  <div className="flex flex-wrap gap-2 justify-center pt-4">
+                    {dailyTask.words.map(w => (
+                      <span key={w} className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full font-black uppercase text-sm border-2 border-emerald-100">
+                        {w}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-2xl text-white">
+                  <button 
+                    onClick={() => setGameState('story')}
+                    className={`p-8 rounded-[40px] border-b-8 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group relative
+                      ${dailyTask.loopsDone >= 3 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-orange-400 border-orange-600'}`}
+                  >
+                    {dailyTask.loopsDone >= 3 && <CheckCircle2 className="absolute top-6 right-6 text-emerald-500" size={32} />}
+                    <div className="text-6xl group-hover:scale-110 transition-transform">🔍</div>
+                    <span className={`text-2xl font-black uppercase italic ${dailyTask.loopsDone >= 3 ? 'text-slate-400' : ''}`}>Find Words</span>
+                    <div className="bg-black/10 px-4 py-1 rounded-full text-xs font-black">
+                      {dailyTask.loopsDone}/3 LOOPS
+                    </div>
+                    <p className={`text-sm font-bold ${dailyTask.loopsDone >= 3 ? 'text-slate-300' : 'opacity-80'}`}>
+                      Learn: {dailyTask.words.join(', ')}
+                    </p>
+                  </button>
+                  <button 
+                    onClick={() => setGameState('fullStory')}
+                    className={`p-8 rounded-[40px] border-b-8 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group relative
+                      ${dailyTask.loopsDone < 3 ? 'opacity-50' : dailyTask.readsDone >= 2 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-blue-500 border-blue-700'}`}
+                  >
+                    {dailyTask.readsDone >= 2 && <CheckCircle2 className="absolute top-6 right-6 text-emerald-500" size={32} />}
+                    <div className="text-6xl group-hover:scale-110 transition-transform">📖</div>
+                    <span className={`text-2xl font-black uppercase italic ${dailyTask.readsDone >= 2 ? 'text-slate-400' : ''}`}>Story Time</span>
+                    <div className="bg-black/10 px-4 py-1 rounded-full text-xs font-black">
+                      {dailyTask.readsDone}/2 READS
+                    </div>
+                    <p className={`text-sm font-bold ${dailyTask.readsDone >= 2 ? 'text-slate-300' : 'opacity-80'}`}>
+                      {dailyTask.loopsDone < 3 ? 'Finish learning first!' : 'Read your daily adventure!'}
+                    </p>
+                  </button>
+                </div>
+              )}
             </motion.div>
           ) : gameState === 'parents' ? (
             <motion.div 
