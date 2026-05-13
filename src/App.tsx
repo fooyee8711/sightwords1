@@ -106,7 +106,7 @@ const GhostProgressBar = ({
   );
 };
 
-const PhonemeBox = ({ letters, onComplete, onLetterTap }: { letters: string[], onComplete: () => void, onLetterTap: (letter: string) => void }) => {
+const PhonemeBox = ({ letters, onComplete }: { letters: string[], onComplete: () => void }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>([]);
   const [usedIndices, setUsedIndices] = useState<number[]>([]);
@@ -127,7 +127,6 @@ const PhonemeBox = ({ letters, onComplete, onLetterTap }: { letters: string[], o
     const targetLetter = letters[activeIndex];
 
     if (tappedLetter === targetLetter) {
-      onLetterTap(tappedLetter);
       setUsedIndices(prev => [...prev, originalIndex]);
       const nextIndex = activeIndex + 1;
       setActiveIndex(nextIndex);
@@ -285,16 +284,18 @@ export default function App() {
     
     setIsGeneratingStories(true);
     try {
-      const prompt = `Generate exactly 5 very simple short stories for a 5-year-old child. 
-      The style must be extremely simple, like a Peppa Pig picture book. Use very short sentences and easy words.
-      Each story should be 6 to 8 short lines long.
+      const prompt = `Generate exactly 1 long educational adventure story for a 5-year-old child featuring Peppa Pig and her family. 
+      The theme should combine Peppa Pig's daily life with simple educational facts or "how things work" (e.g., why we need rain, how plants grow from seeds, how bees make honey, or how a rainbow appears).
+      The story MUST contain exactly 30 simple sentences in total.
+      Structure the story into exactly 5 pages, with each page having exactly 6 short sentences.
       
-      CRITICAL REQUIREMENT: Every single story MUST include ALL of the following ${todaysWords.length} sight words: ${todaysWords.join(', ')}. 
+      CRITICAL REQUIREMENT: The story MUST include ALL of the following sight words multiple times throughout the narrative: ${todaysWords.join(', ')}. 
       
-      The stories should be themed around Peppa Pig, her family, friends, and their daily adventures (park, school, muddy puddles).
-      Ensure the language is repetitive and predictable, ideal for early readers (Lexile 100L-200L).
+      The tone must be gentle, reasonable (making logical sense), and educational. Use repetitive and predictable sentence structures.
       
-      Return the result as a JSON array of exactly 5 objects, where each object has a 'title' string and a 'lines' array of strings.`;
+      Return the result as a JSON object with:
+      - 'title': A fun title for the story.
+      - 'pages': An array of 5 objects, where each object has a 'lines' array of 6 strings.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -302,45 +303,50 @@ export default function App() {
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                lines: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              pages: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    lines: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING }
+                    }
+                  },
+                  required: ["lines"]
                 }
-              },
-              required: ["title", "lines"]
-            }
+              }
+            },
+            required: ["title", "pages"]
           }
         }
       });
 
       const data = JSON.parse(response.text);
-      setGeneratedStories(data.slice(0, 5).map((s: any, storyIdx: number) => ({
-        id: `story-${storyIdx}`,
-        title: s.title,
-        lines: s.lines.map((line: string, lineIdx: number) => ({
-          id: `story-${storyIdx}-line-${lineIdx}`,
+      setGeneratedStories(data.pages.slice(0, 5).map((page: any, pageIdx: number) => ({
+        id: `page-${pageIdx}`,
+        title: data.title,
+        lines: page.lines.map((line: string, lineIdx: number) => ({
+          id: `page-${pageIdx}-line-${lineIdx}`,
           text: line
         }))
       })));
     } catch (error) {
-      console.error("Failed to generate stories:", error);
+      console.error("Failed to generate story:", error);
       const fallbacks = [];
       for (let i = 0; i < 5; i++) {
         fallbacks.push({
-          title: `Peppa's Adventure #${i + 1}`,
+          title: "Peppa's Garden Discovery",
           lines: [
-            "Today is a very happy day.",
-            `Peppa and George ${todaysWords[0] || 'play'} outside.`,
-            `They ${todaysWords[1] || 'look'} at the garden.`,
-            `It is fun to ${todaysWords[2] || 'see'} the mud.`,
-            `George ${todaysWords[3] || 'is'} happy.`,
-            `Peppa likes the ${todaysWords[4] || 'blue'} sky.`,
-            "We love to jump in puddles."
+            "Today Peppa is in the big green garden.",
+            "She sees a tiny brown seed in the dirt.",
+            `She likes to ${todaysWords[0] || 'see'} the brown dirt.`,
+            `The seed needs water to ${todaysWords[1] || 'grow'} up.`,
+            "Rain falls from the gray clouds above.",
+            "Water helps all the plants grow big."
           ].map((text, j) => ({ id: `fallback-${i}-${j}`, text }))
         });
       }
@@ -712,7 +718,6 @@ export default function App() {
                           <div className="text-6xl font-black text-brand-navy mb-12 tracking-tight">{currentSegment.word}</div>
                           <PhonemeBox 
                             letters={getPhonemes(currentSegment.word)} 
-                            onLetterTap={(letter) => speak(letter)}
                             onComplete={handleChallengeComplete} 
                           />
                         </motion.div>
@@ -736,7 +741,7 @@ export default function App() {
                             <>
                           <div className="flex justify-between items-center mb-4">
                             <div className="flex flex-col gap-1">
-                              <span className="text-xs font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-4 py-1 rounded-full italic w-fit">Story {currentStoryIdx + 1} of {generatedStories.length}</span>
+                              <span className="text-xs font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-4 py-1 rounded-full italic w-fit">Page {currentStoryIdx + 1} of {generatedStories.length}</span>
                               <h3 className="text-xl font-black text-brand-navy italic">{generatedStories[currentStoryIdx]?.title}</h3>
                             </div>
                             <button 
@@ -780,7 +785,7 @@ export default function App() {
                                   onClick={nextStory}
                                   className="bg-blue-600 text-white px-12 py-5 rounded-full text-2xl font-black shadow-lg hover:bg-blue-700 transition-all flex items-center gap-4"
                                 >
-                                  {currentStoryIdx < generatedStories.length - 1 ? "Next Story ➔" : "Finish Quest 🏁"}
+                                  {currentStoryIdx < generatedStories.length - 1 ? "Next Page ➔" : "Finish Story 🏁"}
                                 </button>
                               </div>
                             </>
