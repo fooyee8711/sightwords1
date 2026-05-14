@@ -277,14 +277,20 @@ export default function App() {
   
   // Initialize or maintain daily words
   useEffect(() => {
-    if (dailyTask.words.length === 0 && wordsInLevel.length > 0) {
-      const unlearned = wordsInLevel.filter(w => !stats[w]?.learned);
-      const pool = unlearned.length > 0 ? unlearned : wordsInLevel;
-      const shuffled = [...pool].sort(() => 0.5 - Math.random());
+    // 1. If currently no daily words, try to pick new ones from unlearned words in this level
+    const unlearnedInLevel = wordsInLevel.filter(w => !stats[w]?.learned);
+    if (dailyTask.words.length === 0 && unlearnedInLevel.length > 0) {
+      const shuffled = [...unlearnedInLevel].sort(() => 0.5 - Math.random());
       const picked = shuffled.slice(0, settings.wordsPerSession);
       setDailyTask(prev => ({ ...prev, words: picked }));
     }
-  }, [wordsInLevel, stats, settings.wordsPerSession, dailyTask.words.length]);
+
+    // 2. Remove words that were manually marked as "Learned" from the current daily task
+    const stillUnlearned = dailyTask.words.filter(w => !stats[w]?.learned);
+    if (stillUnlearned.length !== dailyTask.words.length) {
+      setDailyTask(prev => ({ ...prev, words: stillUnlearned }));
+    }
+  }, [wordsInLevel, stats, settings.wordsPerSession, dailyTask.words]);
 
   const todaysWords = useMemo(() => dailyTask.words, [dailyTask.words]);
 
