@@ -275,22 +275,17 @@ export default function App() {
 
   const wordsInLevel = useMemo(() => SIGHT_WORDS_BY_LEVEL[level] || [], [level]);
   
-  // Initialize or maintain daily words
+  // Initialize daily words if none exist
   useEffect(() => {
-    // 1. If currently no daily words, try to pick new ones from unlearned words in this level
-    const unlearnedInLevel = wordsInLevel.filter(w => !stats[w]?.learned);
-    if (dailyTask.words.length === 0 && unlearnedInLevel.length > 0) {
-      const shuffled = [...unlearnedInLevel].sort(() => 0.5 - Math.random());
+    // Only pick new words if the task is completely empty (initial load or manual reset)
+    if (dailyTask.words.length === 0 && wordsInLevel.length > 0) {
+      const unlearnedInLevel = wordsInLevel.filter(w => !stats[w]?.learned);
+      const pool = unlearnedInLevel.length > 0 ? unlearnedInLevel : wordsInLevel;
+      const shuffled = [...pool].sort(() => 0.5 - Math.random());
       const picked = shuffled.slice(0, settings.wordsPerSession);
       setDailyTask(prev => ({ ...prev, words: picked }));
     }
-
-    // 2. Remove words that were manually marked as "Learned" from the current daily task
-    const stillUnlearned = dailyTask.words.filter(w => !stats[w]?.learned);
-    if (stillUnlearned.length !== dailyTask.words.length) {
-      setDailyTask(prev => ({ ...prev, words: stillUnlearned }));
-    }
-  }, [wordsInLevel, stats, settings.wordsPerSession, dailyTask.words]);
+  }, [wordsInLevel, settings.wordsPerSession, dailyTask.words.length]);
 
   const todaysWords = useMemo(() => dailyTask.words, [dailyTask.words]);
 
@@ -319,18 +314,21 @@ export default function App() {
     
     setIsGeneratingStories(true);
     try {
-      const prompt = `Generate exactly 1 long educational adventure story for a 5-year-old child featuring Peppa Pig and her family. 
-      The theme should combine Peppa Pig's daily life with simple educational facts or "how things work" (e.g., why we need rain, how plants grow from seeds, how bees make honey, or how a rainbow appears).
-      The story MUST contain exactly 30 simple sentences in total.
-      Structure the story into exactly 5 pages, with each page having exactly 6 short sentences.
+      const prompt = `Generate exactly 1 educational adventure story for a 5-year-old child featuring Peppa Pig and her family. 
+      The theme should combine Peppa Pig's daily life with simple educational facts (e.g., how bees make honey, how plants grow, or why birds fly).
       
-      CRITICAL REQUIREMENT: The story MUST include ALL of the following sight words multiple times throughout the narrative: ${todaysWords.join(', ')}. 
+      STRICT STRUCTURAL REQUIREMENTS:
+      1. The story MUST be exactly 5 pages long.
+      2. Each page MUST be unique and contain exactly 6 simple sentences.
+      3. Total sentences in the story must be exactly 30 (5 pages * 6 sentences).
+      4. The story MUST progress logically from Page 1 to Page 5 (Introduction, Rising Action, Climax, Resolution, Fun Fact/Conclusion).
+      5. The story MUST include ALL of these sight words: ${todaysWords.join(', ')}.
       
-      The tone must be gentle, reasonable (making logical sense), and educational. Use repetitive and predictable sentence structures.
+      The tone must be gentle, logical, and educational. Use repetitive and predictable sentence structures.
       
-      Return the result as a JSON object with:
-      - 'title': A fun title for the story.
-      - 'pages': An array of 5 objects, where each object has a 'lines' array of 6 strings.`;
+      Return a JSON object with:
+      - 'title': A fun title.
+      - 'pages': An array of EXACTLY 5 objects. Each object must have a 'lines' array of EXACTLY 6 simple strings.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -343,11 +341,15 @@ export default function App() {
               title: { type: Type.STRING },
               pages: {
                 type: Type.ARRAY,
+                minItems: 5,
+                maxItems: 5,
                 items: {
                   type: Type.OBJECT,
                   properties: {
                     lines: {
                       type: Type.ARRAY,
+                      minItems: 6,
+                      maxItems: 6,
                       items: { type: Type.STRING }
                     }
                   },
@@ -361,31 +363,42 @@ export default function App() {
       });
 
       const data = JSON.parse(response.text);
-      setGeneratedStories(data.pages.slice(0, 5).map((page: any, pageIdx: number) => ({
-        id: `page-${pageIdx}`,
-        title: data.title,
-        lines: page.lines.map((line: string, lineIdx: number) => ({
-          id: `page-${pageIdx}-line-${lineIdx}`,
-          text: line
-        }))
-      })));
+      // Ensure we have exactly 5 pages, and pad/trim sentences if model deviates
+      const processedPages = (data.pages || []).slice(0, 5);
+      while (processedPages.length < 5) {
+        processedPages.push({ lines: ["...", "...", "...", "...", "...", "..."] });
+      }
+
+      setGeneratedStories(processedPages.map((page: any, pageIdx: number) => {
+        let lines = (page.lines || []).slice(0, 6);
+        while (lines.length < 6) lines.push("...");
+        
+        return {
+          id: `page-${pageIdx}`,
+          title: data.title || "Peppa's Adventure",
+          lines: lines.map((line: string, lineIdx: number) => ({
+            id: `page-${pageIdx}-line-${lineIdx}`,
+            text: line
+          }))
+        };
+      }));
     } catch (error) {
       console.error("Failed to generate story:", error);
-      const fallbacks = [];
-      for (let i = 0; i < 5; i++) {
-        fallbacks.push({
-          title: "Peppa's Garden Discovery",
-          lines: [
-            "Today Peppa is in the big green garden.",
-            "She sees a tiny brown seed in the dirt.",
-            `She likes to ${todaysWords[0] || 'see'} the brown dirt.`,
-            `The seed needs water to ${todaysWords[1] || 'grow'} up.`,
-            "Rain falls from the gray clouds above.",
-            "Water helps all the plants grow big."
-          ].map((text, j) => ({ id: `fallback-${i}-${j}`, text }))
-        });
-      }
-      setGeneratedStories(fallbacks);
+      
+      // Better fallbacks with distinct content per page
+      const fallbackThemes = [
+        { title: "Peppa's Garden: The Seed", lines: ["Today Peppa is in the garden.", "She sees a tiny brown seed.", `She likes to ${todaysWords[0] || 'see'} the seed.`, "It is very small and round.", "Peppa puts it in the dirt.", "She wants it to grow big."] },
+        { title: "Peppa's Garden: The Water", lines: ["Rain falls from the gray sky.", "The rain is good for plants.", `The seed finds water ${todaysWords[1] || 'in'} the dirt.`, "It drinks the cool water up.", "Peppa and George jump in puddles.", "Splish! Splash! Muddy puddles!"] },
+        { title: "Peppa's Garden: The Sun", lines: ["The big yellow sun comes out.", "The garden is very bright now.", "Plants love the warm sunshine.", `Peppa can ${todaysWords[2] || 'look'} at the garden.`, "The tiny seed begins to wake.", "It pushes up through the dirt."] },
+        { title: "Peppa's Garden: The Sprout", lines: ["Peppa sees a small green leaf.", "The seed is now a sprout.", `It is ${todaysWords[3] || 'so'} happy to be here.`, "George points at the green leaf.", "Grow, grow, grow, little plant!", "Everything is growing in the sun."] },
+        { title: "Peppa's Garden: The Flower", lines: ["Now there is a beautiful flower.", "A bee comes to say hello.", "Bees catch pollen on their legs.", `Yes, it ${todaysWords[4] || 'is'} a busy garden.`, "Peppa loves her pretty flower.", "Gardening is lots of fun!"] }
+      ];
+
+      setGeneratedStories(fallbackThemes.map((f, i) => ({
+        id: `fallback-${i}`,
+        title: f.title,
+        lines: f.lines.map((text, j) => ({ id: `fallback-${i}-${j}`, text }))
+      })));
     } finally {
       setIsGeneratingStories(false);
     }
@@ -485,7 +498,7 @@ export default function App() {
       setTotalScore(prev => prev + 100);
       setDailyTask(prev => {
         const nextLoops = prev.loopsDone + 1;
-        if (nextLoops === 3) {
+        if (nextLoops === 1) {
           setStats(s => {
             const newStats = { ...s };
             prev.words.forEach(w => {
@@ -578,7 +591,7 @@ export default function App() {
                 <h2 className="text-4xl font-black text-brand-navy italic">Today's Walk</h2>
                 <div className="flex gap-4 items-center justify-center">
                   <div className="flex flex-col items-center gap-1">
-                    <div className={`w-3 h-3 rounded-full ${dailyTask.loopsDone >= 3 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-3 h-3 rounded-full ${dailyTask.loopsDone >= 1 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                     <span className="text-[10px] font-black uppercase text-slate-400">Step 1: Learn</span>
                   </div>
                   <div className="w-8 h-1 bg-slate-100 rounded-full" />
@@ -589,17 +602,37 @@ export default function App() {
                 </div>
               </div>
 
-              {dailyTask.loopsDone >= 3 && dailyTask.readsDone >= 2 ? (
+              {dailyTask.loopsDone >= 1 && dailyTask.readsDone >= 2 ? (
                 <div className="bg-white p-12 rounded-[40px] border-4 border-brand-border text-center space-y-6 shadow-xl max-w-lg">
                   <div className="text-8xl">🥇</div>
                   <h3 className="text-4xl font-black text-brand-navy italic">Daily Mission Clear!</h3>
-                  <p className="text-xl text-slate-500 font-bold">You've mastered today's words and finished your stories. See you tomorrow for a new quest!</p>
-                  <div className="flex flex-wrap gap-2 justify-center pt-4">
+                  <p className="text-xl text-slate-500 font-bold">You've mastered today's words and finished your stories!</p>
+                  <div className="flex flex-wrap gap-2 justify-center py-4">
                     {dailyTask.words.map(w => (
                       <span key={w} className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full font-black uppercase text-sm border-2 border-emerald-100">
                         {w}
                       </span>
                     ))}
+                  </div>
+                  <div className="pt-6">
+                    <button 
+                      onClick={() => {
+                        const unlearned = wordsInLevel.filter(w => !stats[w]?.learned);
+                        const pool = unlearned.length > 0 ? unlearned : wordsInLevel;
+                        const picked = pool.slice(0, settings.wordsPerSession);
+                        setDailyTask({
+                          words: picked,
+                          loopsDone: 0,
+                          readsDone: 0,
+                          lastReset: new Date().toDateString()
+                        });
+                        setGameState('home');
+                      }}
+                      className="bg-orange-500 text-white px-8 py-4 rounded-full font-black text-xl shadow-lg hover:bg-orange-600 hover:-translate-y-1 transition-all flex items-center gap-3 mx-auto"
+                    >
+                      <span className="text-2xl">🔥</span> Start New Challenge
+                    </button>
+                    <p className="text-slate-400 text-xs mt-4 font-bold uppercase tracking-widest">Learn the next {settings.wordsPerSession} words</p>
                   </div>
                 </div>
               ) : (
@@ -607,22 +640,22 @@ export default function App() {
                   <button 
                     onClick={() => setGameState('story')}
                     className={`p-8 rounded-[40px] border-b-8 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group relative
-                      ${dailyTask.loopsDone >= 3 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-orange-400 border-orange-600'}`}
+                      ${dailyTask.loopsDone >= 1 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-orange-400 border-orange-600'}`}
                   >
-                    {dailyTask.loopsDone >= 3 && <CheckCircle2 className="absolute top-6 right-6 text-emerald-500" size={32} />}
+                    {dailyTask.loopsDone >= 1 && <CheckCircle2 className="absolute top-6 right-6 text-emerald-500" size={32} />}
                     <div className="text-6xl group-hover:scale-110 transition-transform">🔍</div>
-                    <span className={`text-2xl font-black uppercase italic ${dailyTask.loopsDone >= 3 ? 'text-slate-400' : ''}`}>Find Words</span>
+                    <span className={`text-2xl font-black uppercase italic ${dailyTask.loopsDone >= 1 ? 'text-slate-400' : ''}`}>Find Words</span>
                     <div className="bg-black/10 px-4 py-1 rounded-full text-xs font-black">
-                      {dailyTask.loopsDone}/3 LOOPS
+                      {dailyTask.loopsDone}/1 LOOPS
                     </div>
-                    <p className={`text-sm font-bold ${dailyTask.loopsDone >= 3 ? 'text-slate-300' : 'opacity-80'}`}>
+                    <p className={`text-sm font-bold ${dailyTask.loopsDone >= 1 ? 'text-slate-300' : 'opacity-80'}`}>
                       Learn: {dailyTask.words.join(', ')}
                     </p>
                   </button>
                   <button 
                     onClick={() => setGameState('fullStory')}
                     className={`p-8 rounded-[40px] border-b-8 shadow-xl hover:translate-y-1 hover:border-b-4 transition-all flex flex-col items-center gap-4 group relative
-                      ${dailyTask.loopsDone < 3 ? 'opacity-50' : dailyTask.readsDone >= 2 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-blue-500 border-blue-700'}`}
+                      ${dailyTask.loopsDone < 1 ? 'opacity-50' : dailyTask.readsDone >= 2 ? 'bg-slate-100 border-slate-200 grayscale' : 'bg-blue-500 border-blue-700'}`}
                   >
                     {dailyTask.readsDone >= 2 && <CheckCircle2 className="absolute top-6 right-6 text-emerald-500" size={32} />}
                     <div className="text-6xl group-hover:scale-110 transition-transform">📖</div>
@@ -631,7 +664,7 @@ export default function App() {
                       {dailyTask.readsDone}/2 READS
                     </div>
                     <p className={`text-sm font-bold ${dailyTask.readsDone >= 2 ? 'text-slate-300' : 'opacity-80'}`}>
-                      {dailyTask.loopsDone < 3 ? 'Finish learning first!' : 'Read your daily adventure!'}
+                      {dailyTask.loopsDone < 1 ? 'Finish learning first!' : 'Read your daily adventure!'}
                     </p>
                   </button>
                 </div>
