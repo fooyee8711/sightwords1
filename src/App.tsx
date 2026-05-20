@@ -322,7 +322,7 @@ export default function App() {
       2. Each page MUST be unique and contain exactly 6 simple sentences.
       3. Total sentences in the story must be exactly 30 (5 pages * 6 sentences).
       4. The story MUST progress logically from Page 1 to Page 5 (Introduction, Rising Action, Climax, Resolution, Fun Fact/Conclusion).
-      5. The story MUST include ALL of these sight words: ${todaysWords.join(', ')}.
+      5. CRITICAL: EACH AND EVERY PAGE (1 through 5) MUST include a selection of the following sight words: ${todaysWords.join(', ')}.
       
       The tone must be gentle, logical, and educational. Use repetitive and predictable sentence structures.
       
@@ -385,13 +385,13 @@ export default function App() {
     } catch (error) {
       console.error("Failed to generate story:", error);
       
-      // Better fallbacks with distinct content per page
+      // Better fallbacks with distinct content per page using today's words
       const fallbackThemes = [
-        { title: "Peppa's Garden: The Seed", lines: ["Today Peppa is in the garden.", "She sees a tiny brown seed.", `She likes to ${todaysWords[0] || 'see'} the seed.`, "It is very small and round.", "Peppa puts it in the dirt.", "She wants it to grow big."] },
-        { title: "Peppa's Garden: The Water", lines: ["Rain falls from the gray sky.", "The rain is good for plants.", `The seed finds water ${todaysWords[1] || 'in'} the dirt.`, "It drinks the cool water up.", "Peppa and George jump in puddles.", "Splish! Splash! Muddy puddles!"] },
-        { title: "Peppa's Garden: The Sun", lines: ["The big yellow sun comes out.", "The garden is very bright now.", "Plants love the warm sunshine.", `Peppa can ${todaysWords[2] || 'look'} at the garden.`, "The tiny seed begins to wake.", "It pushes up through the dirt."] },
-        { title: "Peppa's Garden: The Sprout", lines: ["Peppa sees a small green leaf.", "The seed is now a sprout.", `It is ${todaysWords[3] || 'so'} happy to be here.`, "George points at the green leaf.", "Grow, grow, grow, little plant!", "Everything is growing in the sun."] },
-        { title: "Peppa's Garden: The Flower", lines: ["Now there is a beautiful flower.", "A bee comes to say hello.", "Bees catch pollen on their legs.", `Yes, it ${todaysWords[4] || 'is'} a busy garden.`, "Peppa loves her pretty flower.", "Gardening is lots of fun!"] }
+        { title: "Peppa's Garden: The Seed", lines: ["Today Peppa is in the garden.", "She sees a tiny brown seed.", `She likes to ${todaysWords[0] || 'see'} the seed.`, `George wants to ${todaysWords[1] || 'look'} too.`, "Peppa puts it in the dirt.", "She wants it to grow big."] },
+        { title: "Peppa's Garden: The Water", lines: ["Rain falls from the gray sky.", "The rain is good for plants.", `The seed finds water ${todaysWords[2] || 'in'} the dirt.`, `Yes, ${todaysWords[3] || 'it'} drinks the water.`, "Peppa and George jump in puddles.", "Splish! Splash! Muddy puddles!"] },
+        { title: "Peppa's Garden: The Sun", lines: ["The big yellow sun comes out.", "The garden is very bright now.", "Plants love the warm sunshine.", `Peppa can ${todaysWords[4] || 'see'} the garden.`, `We ${todaysWords[0] || 'like'} the bright sun.`, "It pushes up through the dirt."] },
+        { title: "Peppa's Garden: The Sprout", lines: ["Peppa sees a small green leaf.", "The seed is now a sprout.", `It is ${todaysWords[1] || 'so'} happy to be here.`, `Can you ${todaysWords[2] || 'see'} the leaf?`, "Grow, grow, grow, little plant!", "Everything is growing in the sun."] },
+        { title: "Peppa's Garden: The Flower", lines: ["Now there is a beautiful flower.", "A bee comes to say hello.", "Bees catch pollen on their legs.", `Yes, it ${todaysWords[3] || 'is'} a busy garden.`, `Peppa and George ${todaysWords[4] || 'play'} here.`, "Gardening is lots of fun!"] }
       ];
 
       setGeneratedStories(fallbackThemes.map((f, i) => ({

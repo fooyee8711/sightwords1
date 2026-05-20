@@ -68,7 +68,7 @@ export const STORY_TEMPLATES: Record<string, Omit<StorySegment, 'word' | 'id'>> 
   'little': { text: "George is Peppa's little brother.", emoji: "👶🐷", question: "Find 'little'!", actionInstruction: "Tap the word 'little'!", type: 'spot' },
   'look': { text: "Look at the colorful rainbow!", emoji: "🌈🐷", question: "Find 'look'!", actionInstruction: "Tap the word 'look'!", type: 'spot' },
   'me': { text: "Follow me to the windy hill!", emoji: "🌬️🐷", question: "Find 'me'!", actionInstruction: "Tap the word 'me'!", type: 'spot' },
-  'mom': { text: "Mummy Pig is very smart.", emoji: "👩‍🏫🐷", question: "Find 'mom'!", actionInstruction: "Tap the word 'mom'!", type: 'spot' },
+  'mom': { text: "Mom Pig is very smart.", emoji: "👩‍🏫🐷", question: "Find 'mom'!", actionInstruction: "Tap the word 'mom'!", type: 'spot' },
   'my': { text: "Teddy is my best friend.", emoji: "🧸🐷", question: "Find 'my'!", actionInstruction: "Tap the word 'my'!", type: 'spot' },
   'not': { text: "It is not bedtime yet!", emoji: "⏰🐷", question: "Find 'not'!", actionInstruction: "Tap the word 'not'!", type: 'spot' },
   'on': { text: "Put on your yellow boots.", emoji: "👢🐷", question: "Find 'on'!", actionInstruction: "Tap the word 'on'!", type: 'spot' },
