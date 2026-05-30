@@ -3,9 +3,9 @@ import { v2 as cloudinary } from 'cloudinary';
 
 // 根據你的環境變數進行設定
 cloudinary.config({
-  cloud_name: process.env.dedlolmrj,
-  api_key: process.env.344537151577516,
-  api_secret: process.env.1n3MwWgrICeo8rMP7adYOP4nrE0,
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
